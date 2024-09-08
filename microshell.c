@@ -33,8 +33,30 @@ void	ft_putstr_fd2(char *str, char *arg)
 	write(2, "\n", 1);
 }
 
+/**
+ * CD buildin function. If it is invoked inside
+ * a PIPE with error, the program exit.
+ * In all cases error message is written when needed.
+*/
+static	void cd(char **argv, int i, int has_pipe)
+{
+	int	status;
+	
+	status = (i != 2) || chdir(argv[1]) != 0;
+	if (i != 2)
+		ft_putstr_fd2("error: cd: bad arguments", NULL);
+	else if (status)
+		ft_putstr_fd2("error: cd: cannot change directory to ", argv[1]	);
+	if (has_pipe)
+		exit (status);
+}
+
 void ft_execute(char *argv[], int i, int tmp_fd, char *env[])
 {
+	
+	// cd function whne pipe
+	if (strcmp(argv[0], "cd") == 0) //cd
+		cd(argv, i, 1);	
 	//overwrite ; or | or NULL with NULL to use the array as input for execve.
 	//we are here in the child so it has no impact in the parent process.
 	argv[i] = NULL;
@@ -61,13 +83,8 @@ int	main(int argc, char *argv[], char *env[])
 		//count until we have all informations to execute the next child;
 		while (argv[i] && strcmp(argv[i], ";") && strcmp(argv[i], "|"))
 			i++;
-		if (strcmp(argv[0], "cd") == 0) //cd
-		{
-			if (i != 2)
-				ft_putstr_fd2("error: cd: bad arguments", NULL);
-			else if (chdir(argv[1]) != 0)
-				ft_putstr_fd2("error: cd: cannot change directory to ", argv[1]	);
-		}
+		if (strcmp(argv[0], "cd") == 0 && argv[i] && strcmp(argv[i], "|")) //cd
+			cd(argv, i, 0);	
 		else if (i != 0 && (argv[i] == NULL || strcmp(argv[i], ";") == 0)) //exec in stdout
 		{
 			if ( fork() == 0)
