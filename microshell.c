@@ -1,122 +1,130 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   microshell.c                                       :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: astein <astein@student.42lisboa.com>       +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2021/12/15 12:15:17 by shackbei          #+#    #+#             */
-/*   Updated: 2023/12/06 23:29:19 by astein           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include <unistd.h>
-#include <sys/wait.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <sys/types.h>
 
-/*not needed in exam, but necessary if you want to use this tester:
-https://github.com/Glagan/42-exam-rank-04/blob/master/microshell/test.sh*/
-// #ifdef TEST_SH
-// # define TEST		1
-// #else
-// # define TEST		0
-// #endif
+#ifndef TEST
+# define TEST 0
+#endif
 
-void	ft_putstr_fd2(char *str, char *arg)
+/* Test system fails */
+//#define pipe(...) -1
+//#define dup(...) -1
+//#define dup2(...) -1
+//#define fork() -1
+//#define close(...) -1
+
+static void ft_fail_check(int i);
+static void err(char *str, char *args);
+static void cd(char **argv, int i, int has_pipe);
+static void ft_execute(char **argv, int i, int tmp_fd, char **envp);
+
+int main(int, char **argv, char **envp)
 {
-	while (*str)
-		write(2, str++, 1);
-	if (arg)
-		while(*arg)
-			write(2, arg++, 1);
-	write(2, "\n", 1);
-}
-
-/**
- * CD buildin function. If it is invoked inside
- * a PIPE with error, the program exit.
- * In all cases error message is written when needed.
-*/
-static	void cd(char **argv, int i, int has_pipe)
-{
-	int	status;
-	
-	status = (i != 2) || chdir(argv[1]) != 0;
-	if (i != 2)
-		ft_putstr_fd2("error: cd: bad arguments", NULL);
-	else if (status)
-		ft_putstr_fd2("error: cd: cannot change directory to ", argv[1]	);
-	if (has_pipe)
-		exit (status);
-}
-
-void ft_execute(char *argv[], int i, int tmp_fd, char *env[])
-{
-	
-	// cd function whne pipe
-	if (strcmp(argv[0], "cd") == 0) //cd
-		cd(argv, i, 1);	
-	//overwrite ; or | or NULL with NULL to use the array as input for execve.
-	//we are here in the child so it has no impact in the parent process.
-	argv[i] = NULL;
-	dup2(tmp_fd, STDIN_FILENO);
-	close(tmp_fd);
-	execve(argv[0], argv, env);
-	ft_putstr_fd2("error: cannot execute ", argv[0]);
-	exit(1);
-}
-
-int	main(int argc, char *argv[], char *env[])
-{
-	int	i;
-	int fd[2];
-	int tmp_fd;
-	(void)argc;	// is needed in exam, because the exam tester compiles with -Wall -Wextra -Werror
+	int i, fd[2], pid, tmp_fd, status;
 
 	i = 0;
-	tmp_fd = dup(STDIN_FILENO);
-	while (argv[i] && argv[i + 1]) //check if the end is reached
+	ft_fail_check(tmp_fd = dup(STDIN_FILENO));
+	while (argv[i] && argv[i + 1])
 	{
-		argv = &argv[i + 1];	//the new argv start after the ; or |
+		argv += i + 1;
 		i = 0;
-		//count until we have all informations to execute the next child;
+		/** itere strins of the array until end, ";" or "|" */
 		while (argv[i] && strcmp(argv[i], ";") && strcmp(argv[i], "|"))
 			i++;
-		if (strcmp(argv[0], "cd") == 0 && argv[i] && strcmp(argv[i], "|")) //cd
-			cd(argv, i, 0);	
-		else if (i != 0 && (argv[i] == NULL || strcmp(argv[i], ";") == 0)) //exec in stdout
+		/** If cmd is cd the end of the cmd is not a "|" call cd buildin */
+		if (!strcmp(argv[0], "cd") && argv[i] && strcmp(argv[i], "|"))
+			cd(argv, i, 0);
+		/** If cmd is followed by ";" fork the process to run the cmd */
+		else if (i != 0 && (argv[i] == NULL || !strcmp(argv[i], ";")))
 		{
-			if ( fork() == 0)
-				ft_execute(argv, i, tmp_fd, env);
+			ft_fail_check(pid = fork());
+			if (!pid)
+				ft_execute(argv, i, tmp_fd, envp);
 			else
 			{
-				close(tmp_fd);
-				while(waitpid(-1, NULL, WUNTRACED) != -1)
-					;
+				ft_fail_check(close(tmp_fd));
+				while(waitpid(-1, &status, WUNTRACED) != -1)
 				tmp_fd = dup(STDIN_FILENO);
+				ft_fail_check(tmp_fd = dup(STDIN_FILENO));
 			}
 		}
-		else if(i != 0 && strcmp(argv[i], "|") == 0) //pipe
+		/** If cmd is followed by "|" create a pipe to comunicate processes
+		  fork the process and run it in a subprocess*/
+		else if (i != 0 && !strcmp(argv[i], "|"))
 		{
-			pipe(fd);
-			if ( fork() == 0)
+			ft_fail_check(pipe(fd));
+			ft_fail_check(pid = fork());
+			if (!pid)
 			{
-				dup2(fd[1], STDOUT_FILENO);
-				close(fd[0]);
-				close(fd[1]);
-				ft_execute(argv, i, tmp_fd, env);
+				ft_fail_check(dup2(fd[1], STDOUT_FILENO));
+				ft_fail_check(close(fd[0]) + close(fd[1]));
+				ft_execute(argv, i, tmp_fd, envp);
 			}
 			else
 			{
-				close(fd[1]);
-				close(tmp_fd);
+				ft_fail_check(close(fd[1]) + close(tmp_fd) == -1);
 				tmp_fd = fd[0];
 			}
 		}
 	}
-	close(tmp_fd);
-	// if (TEST)		// not needed in exam, but necessary if you want to use this tester:
-	// 	while (1);	// https://github.com/Glagan/42-exam-rank-04/blob/master/microshell/test.sh
+	ft_fail_check(close(tmp_fd));
+	if (TEST)		//Usefull to check if all extra fd are closed at the end
+		while (1);  //of the execution. (Using lsof -p <PID>, last FD must be  2u).
 	return (0);
+}
+
+/** Check if system function fail to return fatal error */
+static void ft_fail_check(int i)
+{
+	if (i == -1)
+	{
+		err("error: fatal", NULL);
+		exit (1);
+	}
+}
+
+/** Write str and args ended witha newline in STDERR_FILENO */
+static void err(char *str, char *args)
+{
+	while (*str)
+		write(STDERR_FILENO, str ++, 1);
+	 while (args && *args)
+		write(STDERR_FILENO, args++, 1);
+	write(STDERR_FILENO, "\n", 1);
+}
+
+/**
+ * Builtin cd. Change to desired directory,
+ * print respective message in STDERR_FILENO if proceed
+ * and finish the function with and exit if it is 
+ * called in a pipe.
+*/
+static void cd(char **argv, int i, int has_pipe)
+{
+	int status;
+
+	status = (i != 2) || chdir(argv[1]) != 0;
+	if (i != 2)
+		err("error: cd: bad arguments", NULL);
+	else if (status)
+		err("error: cd: cannot change directory to ", argv[1]);
+	if (has_pipe)
+		exit (status);
+}
+
+/**
+ * Check and execute commands and manage stdin fd. 
+ */
+static void ft_execute(char **argv, int i, int tmp_fd, char **envp)
+{
+	if (!strcmp(argv[0], "cd"))
+		cd(argv, i, 1);
+	argv[i] = NULL;
+	ft_fail_check(dup2(tmp_fd, STDIN_FILENO));
+	close(tmp_fd);
+	execve(*argv, argv, envp);
+	err("error: cannot execute ", argv[1]);
+	exit (1);
 }
