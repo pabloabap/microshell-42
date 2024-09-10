@@ -20,11 +20,14 @@ static void err(char *str, char *args);
 static void cd(char **argv, int i, int has_pipe);
 static void ft_execute(char **argv, int i, int tmp_fd, char **envp);
 
-int main(int, char **argv, char **envp)
+int main(int argc, char **argv, char **envp)
 {
 	int i, fd[2], pid, tmp_fd, status;
+	(void)argc;
 
 	i = 0;
+	fd[0] = 0;
+	fd[1] = 0;
 	ft_fail_check(tmp_fd = dup(STDIN_FILENO));
 	while (argv[i] && argv[i + 1])
 	{
@@ -70,8 +73,8 @@ int main(int, char **argv, char **envp)
 		}
 	}
 	ft_fail_check(close(tmp_fd));
-	if (TEST)		//Usefull to check if all extra fd are closed at the end
-		while (1);  //of the execution. (Using lsof -p <PID>, last FD must be  2u).
+//	if (TEST)		//Usefull to check if all extra fd are closed at the end
+//		while (1);  //of the execution. (Using lsof -p <PID>, last FD must be  2u).
 	return (0);
 }
 
